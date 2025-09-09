@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weekly Availability</title>
+    <style>
+        body {
+            background-color: #F5F5DC; /* Beige */
+            color: #3D2B1F; /* Dark Chocolate */
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 40px 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1400px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        h1, h2 {
+            font-weight: 400;
+        }
+        h2 {
+            font-size: 1rem;
+            color: #7d6b5f;
+            margin-top: -15px;
+            margin-bottom: 40px;
+        }
+
+        .timetable-container {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            width: 100%;
+        }
+
+        .day-column {
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .day-column h3 {
+            font-weight: 500;
+            margin-bottom: 15px;
+        }
+        
+        .slots-container {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .slot-card {
+            background-color: #fff;
+            border-radius: 8px;
+            padding: 12px 15px 12px 25px;
+            text-align: left;
+            position: relative;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        .slot-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        /* The colored side-bar */
+        .slot-card::before {
+            content: '';
+            position: absolute;
+            left: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            height: 70%;
+            width: 4px;
+            border-radius: 2px;
+        }
+        
+        .slot-card.available::before { background-color: #28a745; } /* Green */
+        .slot-card.booked::before { background-color: #dc3545; } /* Red */
+        
+        .slot-card p {
+            margin: 0;
+        }
+
+        .time-range {
+            font-weight: 600;
+            font-size: 0.95em;
+            margin-bottom: 4px;
+        }
+
+        .status {
+            font-weight: bold;
+            font-size: 0.8em;
+        }
+
+        .status.available-text { color: #28a745; }
+        .status.booked-text { color: #dc3545; text-transform: uppercase; }
+
+        .student-name-input {
+            width: 95%;
+            margin-top: 6px;
+            background: #f5f5dc6e;
+            border: 1px solid #DCD0C0;
+            border-radius: 4px;
+            padding: 6px;
+            color: #3D2B1F;
+            font-family: inherit;
+            font-size: 0.9em;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>My Weekly Availability</h1>
+        <h2 id="week-dates"></h2>
+        <div class="timetable-container" id="timetable-container">
+            </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const container = document.getElementById('timetable-container');
+        const weekDatesHeader = document.getElementById('week-dates');
+        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        
+        // --- Configuration ---
+        const timeBlocks = [
+            { start: 7, end: 11 }, // 7:00 AM to 10:59 AM
+            { start: 15, end: 24 } // 3:00 PM to 11:59 PM (24 is exclusive)
+        ];
+        const slotDurationHours = 1;
+        // ---------------------
+        
+        // ** NEW: Load saved state from localStorage **
+        let savedState = JSON.parse(localStorage.getItem('timetableState')) || {};
+
+        function saveState() {
+            const currentState = {};
+            document.querySelectorAll('.slot-card').forEach(card => {
+                const id = card.id;
+                const status = card.classList.contains('booked') ? 'booked' : 'available';
+                const input = card.querySelector('.student-name-input');
+                const studentName = input ? input.value : '';
+                currentState[id] = { status, studentName };
+            });
+            localStorage.setItem('timetableState', JSON.stringify(currentState));
+        }
+
+        // Set the weekly date range in the header
+        const today = new Date();
+        const startOfWeek = new Date(today.setDate(today.getDate() - today.getDay() + 1)); // Monday
+        const endOfWeek = new Date(new Date(startOfWeek).setDate(startOfWeek.getDate() + 6)); // Sunday
+        const options = { month: 'long', day: 'numeric' };
+        weekDatesHeader.textContent = `${startOfWeek.toLocaleDateString('en-US', options)} - ${endOfWeek.toLocaleDateString('en-US', options)} (All times in your local timezone)`;
+
+
+        // 1. Create the day columns
+        const dayColumns = {};
+        days.forEach((day, index) => {
+            const displayDay = days[(index + 1) % 7]; 
+            const column = document.createElement('div');
+            column.classList.add('day-column');
+            column.innerHTML = `<h3>${displayDay}</h3>`;
+            const slotsContainer = document.createElement('div');
+            slotsContainer.classList.add('slots-container');
+            slotsContainer.id = `slots-${displayDay.toLowerCase()}`;
+            column.appendChild(slotsContainer);
+            container.appendChild(column);
+            dayColumns[displayDay.toLowerCase()] = slotsContainer;
+        });
+
+        // 2. Generate slot cards for weekdays
+        const weekdays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+        weekdays.forEach(day => {
+            timeBlocks.forEach(block => {
+                for (let hour = block.start; hour < block.end; hour += slotDurationHours) {
+                    const slotId = `${day}-${hour}`; // Unique ID for each slot
+                    const card = createSlotCard(hour, slotDurationHours, slotId, savedState[slotId]);
+                    dayColumns[day].appendChild(card);
+                }
+            });
+        });
+
+        function createSlotCard(startHour, duration, id, state) {
+            const card = document.createElement('div');
+            card.classList.add('slot-card');
+            card.id = id;
+
+            const startTime = new Date();
+            startTime.setHours(startHour, 0, 0, 0);
+
+            const endTime = new Date(startTime);
+            endTime.setHours(startTime.getHours() + duration);
+
+            const timeFormatOptions = { hour: 'numeric', minute: '2-digit', hour12: true };
+            
+            const timeRangeEl = document.createElement('p');
+            timeRangeEl.classList.add('time-range');
+            timeRangeEl.textContent = `${startTime.toLocaleTimeString('en-US', timeFormatOptions)} - ${endTime.toLocaleTimeString('en-US', timeFormatOptions)}`;
+
+            const statusEl = document.createElement('p');
+            statusEl.classList.add('status');
+
+            card.appendChild(timeRangeEl);
+            card.appendChild(statusEl);
+            
+            // Apply saved state if it exists
+            if (state && state.status === 'booked') {
+                card.classList.add('booked');
+                statusEl.classList.add('booked-text');
+                statusEl.textContent = 'BOOKED';
+                
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.placeholder = "Student's Name";
+                input.className = 'student-name-input';
+                input.value = state.studentName || ''; // Restore saved name
+                input.addEventListener('click', (e) => e.stopPropagation());
+                card.appendChild(input);
+
+            } else {
+                card.classList.add('available');
+                statusEl.classList.add('available-text');
+                statusEl.textContent = 'AVAILABLE';
+            }
+            return card;
+        }
+        
+        // 3. Event Listener for clicks and input changes
+        container.addEventListener('click', function(event) {
+            const targetCard = event.target.closest('.slot-card');
+            if (!targetCard) return;
+
+            const isBooked = targetCard.classList.contains('booked');
+            const statusEl = targetCard.querySelector('.status');
+
+            if (isBooked) {
+                // Change: Booked -> Available
+                targetCard.classList.remove('booked');
+                targetCard.classList.add('available');
+                statusEl.classList.remove('booked-text');
+                statusEl.classList.add('available-text');
+                statusEl.textContent = 'AVAILABLE';
+                const input = targetCard.querySelector('.student-name-input');
+                if (input) input.remove();
+
+            } else {
+                // Change: Available -> Booked
+                targetCard.classList.remove('available');
+                targetCard.classList.add('booked');
+                statusEl.classList.remove('available-text');
+                statusEl.classList.add('booked-text');
+                statusEl.textContent = 'BOOKED';
+
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.placeholder = "Student's Name";
+                input.className = 'student-name-input';
+                input.addEventListener('click', (e) => e.stopPropagation());
+                targetCard.appendChild(input);
+                input.focus();
+            }
+            saveState(); // Save changes whenever a slot is toggled
+        });
+        
+        // Save state when typing in an input field
+        container.addEventListener('input', function(event) {
+            if(event.target.classList.contains('student-name-input')) {
+                saveState();
+            }
+        });
+    });
+    </script>
+</body>
+</html>
